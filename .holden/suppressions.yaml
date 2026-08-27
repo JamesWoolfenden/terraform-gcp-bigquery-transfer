@@ -1,0 +1,10 @@
+suppressions:
+  - policy_id: HLD_TF_027
+    resource_id: tf_file.variables.tf
+    reason: >-
+      The 16 variables map 1:1 onto the BigQuery Data Transfer Service API surface
+      (connection, transfer schedule, CSV params, CMEK, notifications) rather than
+      indicating multiple responsibilities. The remediation's file split is
+      unavailable here because HLD_TF_017 requires every variable block to live in
+      variables.tf, so the two policies cannot both be satisfied above 15 variables.
+    approved_by: james.woolfenden

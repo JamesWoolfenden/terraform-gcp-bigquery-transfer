@@ -1,0 +1,18 @@
+---
+name: Pull Request
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+# holden:ignore:HLD_CI_017: By Design
+  pr:
+    uses: JamesWoolfenden/.github/.github/workflows/terraform-pr-gcp.yml@main
