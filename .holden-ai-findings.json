@@ -20,10 +20,9 @@
       "remediation": "Add `data \"google_bigquery_default_service_account\" \"bigquery\" {}` and point the grant's member at it. The google_project_service_identity.bigquery resource is then unused and can be removed.",
       "resource": "google_kms_crypto_key_iam_member.bigquery_service_agent",
       "severity": "HIGH",
-      "status": "open",
+      "status": "fixed",
       "suppression_reason": null,
-      "title": "BigQuery CMEK key is granted to the wrong service identity, so no BigQuery resource can use it",
-      "unresolved_since": "2026-08-27"
+      "title": "BigQuery CMEK key is granted to the wrong service identity, so no BigQuery resource can use it"
     },
     {
       "confidence": "high",
@@ -42,10 +41,9 @@
       "remediation": "Add a google_storage_bucket_iam_member granting roles/storage.objectCreator on the logging bucket to group:cloud-storage-analytics@google.com.",
       "resource": "google_storage_bucket.logging",
       "severity": "MEDIUM",
-      "status": "open",
+      "status": "fixed",
       "suppression_reason": null,
-      "title": "Access logging is configured but the log-delivery principal cannot write to the destination bucket",
-      "unresolved_since": "2026-08-27"
+      "title": "Access logging is configured but the log-delivery principal cannot write to the destination bucket"
     },
     {
       "confidence": "medium",
@@ -87,10 +85,9 @@
       "remediation": "Replace the interpolated string with data.google_storage_project_service_account.default.email_address.",
       "resource": "google_kms_crypto_key_iam_member.gcs_service_agent",
       "severity": "LOW",
-      "status": "open",
+      "status": "fixed",
       "suppression_reason": null,
-      "title": "GCS service agent address is hand-constructed instead of read from its data source",
-      "unresolved_since": "2026-08-27"
+      "title": "GCS service agent address is hand-constructed instead of read from its data source"
     }
   ],
   "scan_date": "2026-08-27T00:00:00Z",
@@ -98,12 +95,12 @@
   "suggested_policies": [
     {
       "rationale": "holden already has HLD_GCP_456 (GCS buckets/objects using CMEK must grant the GCS service agent key access) and HLD_GCP_466 for its ordering, but there is no BigQuery equivalent - coverage_by_type lists only HLD_GCP_399 and HLD_GCP_400 (both CMEK-present checks) for google_bigquery_connection and google_bigquery_data_transfer_config, and nothing on google_bigquery_dataset for the companion grant. The condition is a fixed resource type plus a required companion resource, the same shape HLD_GCP_456 already uses, so no DSL extension is needed. This is the exact defect found as HOLDEN_AI_001.",
+      "shipped_as": "HLD_GCP_535",
       "yaml": "id: HLD_PROPOSED_001\nname: BigQuery resources using CMEK must grant the BigQuery encryption service agent key access\nprinciple: key-management\nseverity: HIGH\nrationale: |\n  BigQuery encrypts and decrypts CMEK-protected datasets, tables, connections\n  and transfer configs as a dedicated service agent,\n  bq-<PROJECT_NUMBER>@bigquery-encryption.iam.gserviceaccount.com, exposed by the\n  google_bigquery_default_service_account data source. This is a different\n  identity from service-<PROJECT_NUMBER>@gcp-sa-bigquery.iam.gserviceaccount.com,\n  which google_project_service_identity returns for bigquery.googleapis.com.\n  Granting the key to the wrong one looks correct and passes every\n  attribute-level check, but the first apply fails with Cloud KMS permission\n  denied.\nremediation: |\n  Grant the BigQuery encryption service agent access to the key:\n\n    data \"google_bigquery_default_service_account\" \"bigquery\" {}\n\n    resource \"google_kms_crypto_key_iam_member\" \"bigquery_cmek\" {\n      crypto_key_id = google_kms_crypto_key.example.id\n      role          = \"roles/cloudkms.cryptoKeyEncrypterDecrypter\"\n      member        = \"serviceAccount:${data.google_bigquery_default_service_account.bigquery.email}\"\n    }\nresources:\n  google_bigquery_dataset:\n    path: default_encryption_configuration.kms_key_name\n    requires_companion:\n      type: google_kms_crypto_key_iam_member\n      path: member\n      contains: bigquery-encryption.iam.gserviceaccount.com\n"
     },
     {
-      "dsl_extension_note": "Needs a two-hop check that the existing DSL cannot express: resolve a reference from resource A (google_storage_bucket.logging.log_bucket) to resource B (another google_storage_bucket), then assert a requires_companion condition against B rather than against A. Today `references.must` accepts only a leaf attribute condition on the target, and `requires_companion` only anchors on the resource the policy block is declared for. The primitive needed is allowing a companion-existence condition inside `references.must`, scoped so the companion's linking attribute (google_storage_bucket_iam_member.bucket) must resolve to B's name.",
-      "rationale": "A bucket that names a log_bucket looks fully compliant to every existing rule, but GCS writes access logs as group:cloud-storage-analytics@google.com and delivery fails silently when that principal has no objectCreator binding on the destination - especially under uniform bucket-level access, where there is no legacy ACL fallback. coverage_by_type for google_storage_bucket lists fourteen policies, including HLD_GCP_003 (logging enabled) and HLD_GCP_451 (must not log to itself), none of which checks that the delivery principal can write. This is HOLDEN_AI_002.",
-      "requires_dsl_extension": true,
+      "rationale": "A bucket that names a log_bucket looks fully compliant to every existing rule, but GCS writes access logs as group:cloud-storage-analytics@google.com and delivery fails silently when that principal has no objectCreator binding on the destination - especially under uniform bucket-level access, where there is no legacy ACL fallback. coverage_by_type for google_storage_bucket lists fourteen policies, including HLD_GCP_003 (logging enabled) and HLD_GCP_451 (must not log to itself), none of which checks that the delivery principal can write. This is HOLDEN_AI_002. Implemented without a DSL extension after all: linked_resource.where accepts a full nested condition including requires_companion, so the two-hop check needed no new primitive.",
+      "shipped_as": "HLD_GCP_536",
       "yaml": "id: HLD_PROPOSED_002\nname: GCS access-log destination buckets must grant the log delivery principal write access\nprinciple: logging-and-monitoring\nseverity: MEDIUM\nrationale: |\n  Cloud Storage delivers usage and storage logs as the group\n  cloud-storage-analytics@google.com. If that principal holds no write role on\n  the bucket named in logging.log_bucket, delivery fails silently: the apply\n  succeeds, the source bucket appears to have audit logging enabled, and no log\n  object is ever written. Uniform bucket-level access removes the legacy ACL\n  fallback that used to mask this.\nremediation: |\n  Grant the delivery group objectCreator on the destination bucket:\n\n    resource \"google_storage_bucket_iam_member\" \"log_delivery\" {\n      bucket = google_storage_bucket.logs.name\n      role   = \"roles/storage.objectCreator\"\n      member = \"group:cloud-storage-analytics@google.com\"\n    }\nresources:\n  google_storage_bucket:\n    references:\n      via: logging.log_bucket\n      type: google_storage_bucket\n      must:\n        requires_companion:\n          type: google_storage_bucket_iam_member\n          path: member\n          equals: \"group:cloud-storage-analytics@google.com\"\n"
     }
   ],
